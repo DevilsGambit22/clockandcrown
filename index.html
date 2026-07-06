@@ -13,14 +13,13 @@ html,body{
   padding:0;
   background:transparent;
   overflow:hidden;
-  font-family:Arial,sans-serif;
+  font-family:Arial,Helvetica,sans-serif;
   color:#f8e7a2;
 }
 
 .board{
   width:100%;
-  max-width:360px;
-  margin:0 auto;
+  margin:0;
   padding:9px;
   border:1px solid rgba(212,175,55,.65);
   border-radius:16px;
@@ -29,9 +28,9 @@ html,body{
 }
 
 .title{
-  margin:0 0 7px;
+  margin:0 0 8px;
   text-align:center;
-  font-family:Georgia,serif;
+  font-family:Georgia,'Times New Roman',serif;
   font-size:20px;
   color:#ffe27a;
 }
@@ -45,23 +44,35 @@ html,body{
 .member{
   display:flex;
   align-items:center;
-  gap:8px;
-  min-height:52px;
-  padding:7px 8px;
+  gap:9px;
+  min-height:54px;
+  padding:7px 9px;
   border-radius:12px;
   text-decoration:none;
-  background:linear-gradient(90deg,rgba(48,36,5,.95),rgba(8,8,8,.96));
+  background:linear-gradient(
+    90deg,
+    rgba(48,36,5,.96),
+    rgba(8,8,8,.98)
+  );
   border:1px solid rgba(212,175,55,.32);
 }
 
+.avatar-wrap{
+  width:40px;
+  height:40px;
+  flex-shrink:0;
+  border-radius:50%;
+  padding:2px;
+  background:linear-gradient(135deg,#fff0a0,#b88a18);
+}
+
 .avatar{
-  width:36px;
-  height:36px;
+  display:block;
+  width:100%;
+  height:100%;
   border-radius:50%;
   object-fit:cover;
-  border:1px solid #d4af37;
-  background:#111;
-  flex-shrink:0;
+  background:#171717;
 }
 
 .info{
@@ -79,13 +90,14 @@ html,body{
 }
 
 .joined{
-  margin-top:2px;
+  margin-top:3px;
   font-size:11px;
   color:#c9ad56;
 }
 
 .rating{
-  min-width:50px;
+  flex-shrink:0;
+  min-width:54px;
   text-align:right;
   font-size:12px;
   font-weight:700;
@@ -94,7 +106,7 @@ html,body{
 }
 
 .status{
-  padding:10px;
+  padding:12px;
   border-radius:12px;
   text-align:center;
   font-size:13px;
@@ -137,42 +149,77 @@ html,body{
 <script>
 const CLUB_SLUG = "clock-and-crown";
 const MEMBER_LIMIT = 3;
+
 const membersBox = document.getElementById("members");
 
 async function getJson(url){
   const response = await fetch(url);
 
   if(!response.ok){
-    throw new Error("Fetch failed");
+    throw new Error("Request failed");
   }
 
   return response.json();
 }
 
-async function getHighestElo(username){
-  try{
-    const stats = await getJson(
-      `https://api.chess.com/pub/player/${username}/stats`
-    );
+async function getMemberDetails(member){
 
-    const ratings = [
-      stats.chess_rapid?.last?.rating,
-      stats.chess_blitz?.last?.rating,
-      stats.chess_bullet?.last?.rating,
-      stats.chess_daily?.last?.rating
-    ].filter(rating => typeof rating === "number");
+  const username = member.username;
 
-    return ratings.length
-      ? Math.max(...ratings)
-      : "N/A";
+  const [profileResult, statsResult] =
+    await Promise.allSettled([
 
-  }catch(error){
-    return "N/A";
-  }
+      getJson(
+        `https://api.chess.com/pub/player/${username}`
+      ),
+
+      getJson(
+        `https://api.chess.com/pub/player/${username}/stats`
+      )
+
+    ]);
+
+  const profile =
+    profileResult.status === "fulfilled"
+      ? profileResult.value
+      : {};
+
+  const stats =
+    statsResult.status === "fulfilled"
+      ? statsResult.value
+      : {};
+
+  const ratings = [
+    stats.chess_rapid?.last?.rating,
+    stats.chess_blitz?.last?.rating,
+    stats.chess_bullet?.last?.rating,
+    stats.chess_daily?.last?.rating
+  ].filter(rating => typeof rating === "number");
+
+  return {
+    ...member,
+
+    avatar:
+      profile.avatar ||
+      member.avatar ||
+      "",
+
+    profileUrl:
+      profile.url ||
+      member.url ||
+      `https://www.chess.com/member/${username}`,
+
+    highestElo:
+      ratings.length
+        ? Math.max(...ratings)
+        : "N/A"
+  };
 }
 
 async function loadMembers(){
+
   try{
+
     const data = await getJson(
       `https://api.chess.com/pub/club/${CLUB_SLUG}/members`
     );
@@ -186,8 +233,11 @@ async function loadMembers(){
     const seen = new Set();
 
     const newestMembers = allMembers
+
       .filter(member => {
-        const username = member.username?.toLowerCase();
+
+        const username =
+          member.username?.toLowerCase();
 
         if(!username || seen.has(username)){
           return false;
@@ -195,82 +245,102 @@ async function loadMembers(){
 
         seen.add(username);
         return true;
+
       })
-      .sort((a,b) => (b.joined || 0) - (a.joined || 0))
+
+      .sort(
+        (a,b) =>
+          (b.joined || 0) -
+          (a.joined || 0)
+      )
+
       .slice(0,MEMBER_LIMIT);
 
-    const enrichedMembers = await Promise.all(
-      newestMembers.map(async member => {
-        const highestElo = await getHighestElo(member.username);
+    const completeMembers =
+      await Promise.all(
+        newestMembers.map(getMemberDetails)
+      );
 
-        return {
-          ...member,
-          highestElo
-        };
-      })
-    );
-
-    renderMembers(enrichedMembers);
+    renderMembers(completeMembers);
 
   }catch(error){
+
     membersBox.innerHTML =
-      `<div class="status">Board unavailable.</div>`;
+      `<div class="status">
+        Board unavailable right now.
+      </div>`;
+
   }
 }
 
 function renderMembers(members){
 
   if(!members.length){
+
     membersBox.innerHTML =
-      `<div class="status">No members found.</div>`;
+      `<div class="status">
+        No members found.
+      </div>`;
+
     return;
   }
 
-  membersBox.innerHTML = members.map(member => {
+  membersBox.innerHTML =
+    members.map(member => {
 
-    const avatar =
-      member.avatar ||
-      "https://www.chess.com/bundles/web/images/noavatar_l.84a92436.gif";
+      const joinedDate =
+        member.joined
+          ? new Date(
+              member.joined * 1000
+            ).toLocaleDateString()
+          : "New";
 
-    const profile =
-      member.url ||
-      `https://www.chess.com/member/${member.username}`;
+      const avatarHtml =
+        member.avatar
 
-    const joined =
-      member.joined
-        ? new Date(member.joined * 1000).toLocaleDateString()
-        : "New";
+          ? `<img
+               class="avatar"
+               src="${member.avatar}"
+               alt="${member.username}"
+               loading="lazy"
+             >`
 
-    return `
-      <a
-        class="member"
-        href="${profile}"
-        target="_blank"
-        rel="noopener"
-      >
-        <img
-          class="avatar"
-          src="${avatar}"
-          alt="${member.username}"
+          : `<div class="avatar"></div>`;
+
+      return `
+
+        <a
+          class="member"
+          href="${member.profileUrl}"
+          target="_blank"
+          rel="noopener"
         >
 
-        <div class="info">
-          <div class="username">
-            ${member.username}
+          <div class="avatar-wrap">
+            ${avatarHtml}
           </div>
 
-          <div class="joined">
-            Joined ${joined}
+          <div class="info">
+
+            <div class="username">
+              ${member.username}
+            </div>
+
+            <div class="joined">
+              Joined ${joinedDate}
+            </div>
+
           </div>
-        </div>
 
-        <div class="rating">
-          ⭐ ${member.highestElo}
-        </div>
-      </a>
-    `;
+          <div class="rating">
+            ⭐ ${member.highestElo}
+          </div>
 
-  }).join("");
+        </a>
+
+      `;
+
+    }).join("");
 }
 
 loadMembers();
