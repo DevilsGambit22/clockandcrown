@@ -1,1 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Clock & Crown Live Members</title>
 
+<style>
+*{box-sizing:border-box}
+
+html,body{
+  margin:0;
+  padding:0;
+  background:transparent;
+  overflow:hidden;
+  font-family:Arial,sans-serif;
+  color:#f8e7a2;
+}
+
+.board{
+  width:100%;
+  max-width:360px;
+  margin:0 auto;
+  padding:9px;
+  border:1px solid rgba(212,175,55,.65);
+  border-radius:16px;
+  background:linear-gradient(180deg,#070707,#000);
+  box-shadow:0 0 10px rgba(212,175,55,.25);
+}
+
+.title{
+  margin:0 0 7px;
+  text-align:center;
+  font-family:Georgia,serif;
+  font-size:20px;
+  color:#ffe27a;
+}
+
+.members{
+  display:flex;
+  flex-direction:column;
+  gap:7px;
+}
+
+.member{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:52px;
+  padding:7px 8px;
+  border-radius:12px;
+  text-decoration:none;
+  background:linear-gradient(90deg,rgba(48,36,5,.95),rgba(8,8,8,.96));
+  border:1px solid rgba(212,175,55,.32);
+}
+
+.avatar{
+  width:36px;
+  height:36px;
+  border-radius:50%;
+  object-fit:cover;
+  border:1px solid #d4af37;
+  background:#111;
+  flex-shrink:0;
+}
+
+.info{
+  flex:1;
+  min-width:0;
+}
+
+.username{
+  font-size:13px;
+  font-weight:700;
+  color:#fff4bd;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+
+.joined{
+  margin-top:2px;
+  font-size:11px;
+  color:#c9ad56;
+}
+
+.rating{
+  min-width:50px;
+  text-align:right;
+  font-size:12px;
+  font-weight:700;
+  color:#ffe27a;
+}
+
+.status{
+  padding:10px;
+  border-radius:12px;
+  text-align:center;
+  font-size:13px;
+  color:#f5dd8b;
+  background:rgba(212,175,55,.08);
+}
+</style>
+</head>
+
+<body>
+
+<div class="board">
+  <h2 class="title">👑 Newest Members</h2>
+  <div id="members" class="members">
+    <div class="status">Loading members...</div>
+  </div>
+</div>
+
+<script>
+const CLUB_SLUG = "clock-and-crown";
+const MEMBER_LIMIT = 3;
+const membersBox = document.getElementById("members");
+
+async function getJson(url){
+  const res = await fetch(url);
+  if(!res.ok) throw new Error("Fetch failed");
+  return res.json();
+}
+
+async function getHighestElo(username){
+  try{
+    const stats = await getJson(`https://api.chess.com/pub/player/${username}/stats`);
+
+    const ratings = [
+      stats.chess_rapid?.last?.rating,
+      stats.chess_blitz?.last?.rating,
+      stats.chess_bullet?.last?.rating,
+      stats.chess_daily?.last?.rating
+    ].filter(r => typeof r === "number");
+
+    return ratings.length ? Math.max(...ratings) : "N/A";
+  }catch(e){
+    return "N/A";
+  }
+}
+
+async function loadMembers(){
+  try{
+    const data = await getJson(`https://api.chess.com/pub/club/${CLUB_SLUG}/members`);
+
+    const allMembers = [
+      ...(data.weekly || []),
+      ...(data.monthly || []),
+      ...(data.all_time || [])
+    ];
+
+    const seen = new Set();
+
+    const newest = allMembers
+      .filter(member=>{
+        const name = member.username?.toLowerCase();
+        if(!name || seen.has(name)) return false;
+        seen.add(name);
+        return true;
+      })
+      .sort((a,b)=>(b.joined || 0)-(a.joined || 0))
+      .slice(0,MEMBER_LIMIT);
+
+    const enriched = await Promise.all(
+      newest.map(async member=>{
+        const highestElo = await getHighestElo(member.username);
+        return {...member, highestElo};
+      })
+    );
+
+    renderMembers(enriched);
+
+  }catch(e){
+    membersBox.innerHTML = `<div class="status">Board unavailable.</div>`;
+  }
+}
+
+function renderMembers(members){
+  if(!members.length){
+    membersBox.innerHTML = `<div class="status">No members found.</div>`;
+    return;
+  }
+
+  membersBox.innerHTML = members.map(member=>{
+    const avatar = member.avatar || "https://www.chess.com/bundles/web/images/noavatar_l.84a92436.gif";
+    const profile = member.url || `https://www.chess.com/member/${member.username}`;
+    const joined = member.joined
+      ? new Date(member.joined * 1000).toLocaleDateString()
+      : "New";
+
+    return `
+      <a class="member" href="${profile}" target="_blank" rel="noopener">
+        <img class="avatar" src="${avatar}" alt="${member.username}">
+        <div class="info">
+          <div class="username">${member.username}</div>
+          <div class="joined">Joined ${joined}</div>
+        </div>
+        <div class="rating">⭐ ${member.highestElo}</div>
+      </a>
+    `;
+  }).join("");
+}
+
+loadMembers();
+</script>
+
+</body>
+</html>
