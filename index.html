@@ -49,11 +49,7 @@ html,body{
   padding:7px 9px;
   border-radius:12px;
   text-decoration:none;
-  background:linear-gradient(
-    90deg,
-    rgba(48,36,5,.96),
-    rgba(8,8,8,.98)
-  );
+  background:linear-gradient(90deg,rgba(48,36,5,.96),rgba(8,8,8,.98));
   border:1px solid rgba(212,175,55,.32);
 }
 
@@ -133,7 +129,6 @@ html,body{
 <body>
 
 <div class="board">
-
   <h2 class="title">👑 Newest Members</h2>
 
   <div id="members" class="members">
@@ -143,204 +138,130 @@ html,body{
   <div class="copyright">
     Made by <span class="creator">DevilsGambit22</span> &copy; 2026
   </div>
-
 </div>
 
 <script>
 const CLUB_SLUG = "clock-and-crown";
 const MEMBER_LIMIT = 3;
+const DEFAULT_AVATAR = "https://www.chess.com/bundles/web/images/noavatar_l.84a92436.gif";
 
 const membersBox = document.getElementById("members");
 
 async function getJson(url){
   const response = await fetch(url);
-
   if(!response.ok){
     throw new Error("Request failed");
   }
-
   return response.json();
 }
 
 async function getMemberDetails(member){
-
   const username = member.username;
 
-  const [profileResult, statsResult] =
-    await Promise.allSettled([
+  let profile = {};
+  let stats = {};
 
-      getJson(
-        `https://api.chess.com/pub/player/${username}`
-      ),
+  try{
+    profile = await getJson("https://api.chess.com/pub/player/" + username);
+  }catch(error){
+    profile = {};
+  }
 
-      getJson(
-        `https://api.chess.com/pub/player/${username}/stats`
-      )
-
-    ]);
-
-  const profile =
-    profileResult.status === "fulfilled"
-      ? profileResult.value
-      : {};
-
-  const stats =
-    statsResult.status === "fulfilled"
-      ? statsResult.value
-      : {};
+  try{
+    stats = await getJson("https://api.chess.com/pub/player/" + username + "/stats");
+  }catch(error){
+    stats = {};
+  }
 
   const ratings = [
-    stats.chess_rapid?.last?.rating,
-    stats.chess_blitz?.last?.rating,
-    stats.chess_bullet?.last?.rating,
-    stats.chess_daily?.last?.rating
-  ].filter(rating => typeof rating === "number");
+    stats.chess_rapid && stats.chess_rapid.last ? stats.chess_rapid.last.rating : null,
+    stats.chess_blitz && stats.chess_blitz.last ? stats.chess_blitz.last.rating : null,
+    stats.chess_bullet && stats.chess_bullet.last ? stats.chess_bullet.last.rating : null,
+    stats.chess_daily && stats.chess_daily.last ? stats.chess_daily.last.rating : null
+  ].filter(function(rating){
+    return typeof rating === "number";
+  });
 
   return {
-    ...member,
-
-    avatar:
-      profile.avatar ||
-      member.avatar ||
-      "",
-
-    profileUrl:
-      profile.url ||
-      member.url ||
-      `https://www.chess.com/member/${username}`,
-
-    highestElo:
-      ratings.length
-        ? Math.max(...ratings)
-        : "N/A"
+    username: username,
+    joined: member.joined || 0,
+    avatar: profile.avatar || member.avatar || DEFAULT_AVATAR,
+    profileUrl: profile.url || member.url || "https://www.chess.com/member/" + username,
+    highestElo: ratings.length ? Math.max.apply(null, ratings) : "N/A"
   };
 }
 
 async function loadMembers(){
-
   try{
+    const data = await getJson("https://api.chess.com/pub/club/" + CLUB_SLUG + "/members");
 
-    const data = await getJson(
-      `https://api.chess.com/pub/club/${CLUB_SLUG}/members`
-    );
+    const allMembers = []
+      .concat(data.weekly || [])
+      .concat(data.monthly || [])
+      .concat(data.all_time || []);
 
-    const allMembers = [
-      ...(data.weekly || []),
-      ...(data.monthly || []),
-      ...(data.all_time || [])
-    ];
+    const seen = {};
+    const uniqueMembers = [];
 
-    const seen = new Set();
+    allMembers.forEach(function(member){
+      if(!member || !member.username){
+        return;
+      }
 
-    const newestMembers = allMembers
+      const name = member.username.toLowerCase();
 
-      .filter(member => {
+      if(seen[name]){
+        return;
+      }
 
-        const username =
-          member.username?.toLowerCase();
+      seen[name] = true;
+      uniqueMembers.push(member);
+    });
 
-        if(!username || seen.has(username)){
-          return false;
-        }
-
-        seen.add(username);
-        return true;
-
+    const newestMembers = uniqueMembers
+      .sort(function(a,b){
+        return (b.joined || 0) - (a.joined || 0);
       })
-
-      .sort(
-        (a,b) =>
-          (b.joined || 0) -
-          (a.joined || 0)
-      )
-
       .slice(0,MEMBER_LIMIT);
 
-    const completeMembers =
-      await Promise.all(
-        newestMembers.map(getMemberDetails)
-      );
+    const completeMembers = await Promise.all(
+      newestMembers.map(function(member){
+        return getMemberDetails(member);
+      })
+    );
 
     renderMembers(completeMembers);
 
   }catch(error){
-
-    membersBox.innerHTML =
-      `<div class="status">
-        Board unavailable right now.
-      </div>`;
-
+    membersBox.innerHTML = '<div class="status">Board unavailable right now.</div>';
   }
 }
 
 function renderMembers(members){
-
   if(!members.length){
-
-    membersBox.innerHTML =
-      `<div class="status">
-        No members found.
-      </div>`;
-
+    membersBox.innerHTML = '<div class="status">No members found.</div>';
     return;
   }
 
-  membersBox.innerHTML =
-    members.map(member => {
+  const html = members.map(function(member){
+    const joinedDate = member.joined
+      ? new Date(member.joined * 1000).toLocaleDateString()
+      : "New";
 
-      const joinedDate =
-        member.joined
-          ? new Date(
-              member.joined * 1000
-            ).toLocaleDateString()
-          : "New";
+    return ''
+      + '<a class="member" href="' + member.profileUrl + '" target="_blank" rel="noopener">'
+      + '<div class="avatar-wrap">'
+      + '<img class="avatar" src="' + member.avatar + '" alt="' + member.username + '">'
+      + '</div>'
+      + '<div class="info">'
+      + '<div class="username">' + member.username + '</div>'
+      + '<div class="joined">Joined ' + joinedDate + '</div>'
+      + '</div>'
+      + '<div class="rating">⭐ ' + member.highestElo + '</div>'
+      + '</a>';
+  }).join("");
 
-      const avatarHtml =
-        member.avatar
-
-          ? `<img
-               class="avatar"
-               src="${member.avatar}"
-               alt="${member.username}"
-               loading="lazy"
-             >`
-
-          : `<div class="avatar"></div>`;
-
-      return `
-
-        <a
-          class="member"
-          href="${member.profileUrl}"
-          target="_blank"
-          rel="noopener"
-        >
-
-          <div class="avatar-wrap">
-            ${avatarHtml}
-          </div>
-
-          <div class="info">
-
-            <div class="username">
-              ${member.username}
-            </div>
-
-            <div class="joined">
-              Joined ${joinedDate}
-            </div>
-
-          </div>
-
-          <div class="rating">
-            ⭐ ${member.highestElo}
-          </div>
-
-        </a>
-
-      `;
-
-    }).join("");
+  membersBox.innerHTML = html;
 }
 
 loadMembers();
